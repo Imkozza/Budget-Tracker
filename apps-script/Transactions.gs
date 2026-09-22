@@ -17,9 +17,12 @@ function getTransactionFormOptions() {
  * in Setup.gs. Reconciled defaults to "N".
  *
  * @param {Object} form {date, amount, direction, category, scope, note, receiptLink}
+ * @param {Object} [fileData] {name, mimeType, base64} from the sidebar's
+ *   file picker. When present, it's uploaded to the receipts Drive folder
+ *   and its link is used instead of form.receiptLink.
  * @return {Object} {row, message}
  */
-function addTransaction(form) {
+function addTransaction(form, fileData) {
   var errors = validateTransactionForm(form);
   if (errors.length) {
     throw new Error(errors.join(' '));
@@ -35,6 +38,21 @@ function addTransaction(form) {
   // -> Uncategorised" rule here.
   var category = wasBlank ? UNCATEGORISED_LABEL : categoryInput;
 
+  var receiptLink = form.receiptLink || '';
+  var uploadWarning = '';
+  if (fileData) {
+    try {
+      receiptLink = uploadReceiptFile(fileData, {
+        date: form.date,
+        scope: form.scope,
+        category: category,
+        amount: form.amount
+      });
+    } catch (e) {
+      uploadWarning = ' Receipt upload failed (' + e.message + ') — transaction saved without it.';
+    }
+  }
+
   sheet.getRange(row, 1, 1, 7).setValues([[
     dateValue,
     Number(form.amount),
@@ -42,15 +60,13 @@ function addTransaction(form) {
     category,
     form.scope,
     form.note || '',
-    form.receiptLink || ''
+    receiptLink
   ]]);
   sheet.getRange(row, 10).setValue('N'); // Reconciled
 
   SpreadsheetApp.flush();
 
-  var warning = wasBlank
-    ? ' Category was left blank — set to "Uncategorised" and flagged.'
-    : '';
+  var warning = (wasBlank ? ' Category was left blank — set to "Uncategorised" and flagged.' : '') + uploadWarning;
 
   return {
     row: row,

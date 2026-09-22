@@ -96,9 +96,13 @@
     <label for="note">Note</label>
     <textarea id="note" placeholder="Optional"></textarea>
 
-    <label for="receiptLink">Receipt Link</label>
-    <input type="url" id="receiptLink" placeholder="Optional (paste a link for now)">
-    <div class="hint">Drive upload for receipts arrives in a later build layer.</div>
+    <label for="receiptFile">Receipt Image</label>
+    <input type="file" id="receiptFile" accept="image/*,application/pdf">
+    <div class="hint">Uploaded to the Drive receipts folder; the link is filled in for you.</div>
+
+    <label for="receiptLink">Receipt Link (alternative)</label>
+    <input type="url" id="receiptLink" placeholder="Or paste a link instead of uploading">
+    <div class="hint" id="receiptHint">If you attach a file above, it's used instead of this link.</div>
 
     <button type="submit" id="submitBtn">Add Transaction</button>
   </form>
@@ -146,6 +150,43 @@
       })
       .getTransactionFormOptions();
 
+    var MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
+
+    function readFileAsBase64(file) {
+      return new Promise(function (resolve, reject) {
+        if (file.size > MAX_RECEIPT_BYTES) {
+          reject(new Error('Receipt file is too large (max 10 MB).'));
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function () {
+          var dataUrl = reader.result;
+          var base64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
+          resolve({ name: file.name, mimeType: file.type, base64: base64 });
+        };
+        reader.onerror = function () { reject(new Error('Could not read the file.')); };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function submitTransaction(form, fileData) {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          setStatus('ok', result.message);
+          document.getElementById('submitBtn').disabled = false;
+          document.getElementById('amount').value = '';
+          document.getElementById('note').value = '';
+          document.getElementById('receiptLink').value = '';
+          document.getElementById('receiptFile').value = '';
+          document.getElementById('category').selectedIndex = 0;
+        })
+        .withFailureHandler(function (err) {
+          setStatus('err', err.message);
+          document.getElementById('submitBtn').disabled = false;
+        })
+        .addTransaction(form, fileData);
+    }
+
     document.getElementById('txnForm').addEventListener('submit', function (e) {
       e.preventDefault();
       var btn = document.getElementById('submitBtn');
@@ -162,20 +203,20 @@
         receiptLink: document.getElementById('receiptLink').value
       };
 
-      google.script.run
-        .withSuccessHandler(function (result) {
-          setStatus('ok', result.message);
-          btn.disabled = false;
-          document.getElementById('amount').value = '';
-          document.getElementById('note').value = '';
-          document.getElementById('receiptLink').value = '';
-          document.getElementById('category').selectedIndex = 0;
-        })
-        .withFailureHandler(function (err) {
+      var fileInput = document.getElementById('receiptFile');
+      var file = fileInput.files && fileInput.files[0];
+
+      if (file) {
+        setStatus('ok', 'Uploading receipt...');
+        readFileAsBase64(file).then(function (fileData) {
+          submitTransaction(form, fileData);
+        }).catch(function (err) {
           setStatus('err', err.message);
           btn.disabled = false;
-        })
-        .addTransaction(form);
+        });
+      } else {
+        submitTransaction(form, null);
+      }
     });
   </script>
 </body>

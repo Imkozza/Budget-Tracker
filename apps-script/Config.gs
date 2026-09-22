@@ -59,8 +59,14 @@ var BUDGETABLE_CATEGORIES = EXPENSE_CATEGORIES.filter(function (c) {
   return c !== UNCATEGORISED_LABEL;
 });
 
-// Script Properties keys (used from Layer 4 onward).
+// Script Properties keys.
 var PROPS_RECEIPTS_FOLDER_ID = 'RECEIPTS_FOLDER_ID';
+
+// The one dedicated Drive folder the spec calls for: receipt images AND
+// generated Tax Export PDFs both live here.
+var RECEIPTS_FOLDER_NAME = 'Budget Tracker Receipts';
+
+var MAX_RECEIPT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 var CURRENCY_FORMAT = '$#,##0.00';
 var DATE_FORMAT = 'yyyy-mm-dd';

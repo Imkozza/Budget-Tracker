@@ -16,7 +16,11 @@ need to do a one-time deploy following the steps below (5–10 minutes).
 - [x] **Layer 1** — tabs + data model + Transactions entry form
 - [x] **Layer 2** — Budget + monthly view + accountability rules
 - [x] **Layer 3** — Savings goals + contributions
-- [ ] Layer 4 — receipt-to-Drive upload + tax export
+- [x] **Layer 4** — receipt-to-Drive upload + tax export
+
+**The build is complete** — all four layers and every item in the original
+spec's "Done when" checklist are implemented. See "What Layer 4 adds" below
+and the Done-when checklist at the bottom of this file.
 
 ## What Layer 1 gives you
 
@@ -30,7 +34,7 @@ need to do a one-time deploy following the steps below (5–10 minutes).
   Goals).
 - **Budget Tracker → Add Transaction...** sidebar: a form to add one
   transaction at a time (Date, Amount, Direction, Category, Scope, Note,
-  Receipt Link as a manual paste-in for now — Drive upload lands in Layer 4).
+  Receipt Link — Drive upload for it lands in Layer 4).
 
 ## What Layer 2 adds
 
@@ -93,6 +97,46 @@ need to do a one-time deploy following the steps below (5–10 minutes).
   Layer 1, sourced from Savings Goals) — just add rows there directly, no
   extra form needed.
 
+## What Layer 4 adds
+
+- **The one Drive folder** (`Budget Tracker Receipts`) — created next to
+  the spreadsheet the first time you run `setupWorkbook`, or lazily on
+  first use otherwise. Its ID is cached in Script Properties so it's
+  reused, never recreated. **Budget Tracker → Open Receipts Folder** shows
+  a clickable link to it any time.
+- **Add Transaction sidebar**: a "Receipt Image" file picker (images or
+  PDF, 10 MB max). Pick a file and submit — it's read client-side, sent to
+  the script, uploaded into the receipts folder as
+  `<date>_<scope>_<category>_<amount>.<ext>` (e.g.
+  `2025-08-17_Work_Transport_42.50.jpg`), shared as "anyone with the link
+  can view", and that link is written into `Receipt Link` automatically.
+  The manual link field still works if you'd rather paste a link than
+  upload a file (a chosen file always wins if both are filled in). If the
+  upload fails for any reason, the transaction still saves — you just get
+  a warning and an empty `Receipt Link` to fix up later.
+- **Budget Tracker → Export Tax Year...**: enter a financial year's
+  starting calendar year (e.g. `2025` for FY2025‑26). It:
+  1. Filters `Transactions` for `Scope = Work` and that financial year.
+  2. Writes them (Date, Amount, Category, Note, Receipt Link, sorted by
+     date) to a `Tax Export` tab, with a Total row and any row missing a
+     Receipt Link highlighted red.
+  3. Saves a PDF snapshot of that tab into the receipts folder
+     (`TaxExport_FY2025-26_<timestamp>.pdf`) and shows you both the
+     summary and the PDF link in a dialog.
+
+  The `Tax Export` tab is regenerated (not appended to) each time you run
+  the export, so re-running it for the same year is safe.
+
+### A privacy note on receipt links
+
+Uploaded receipts are shared as **"anyone with the link can view"**, not
+private-to-you-only — that's what makes the link in `Receipt Link` usable
+by anyone you share the sheet or a Tax Export with (e.g. an accountant),
+without them needing Drive access to your account. If you'd rather receipts
+stayed fully private, open the receipts folder (menu item above) and change
+its sharing in Drive; the workbook doesn't depend on the link being
+public, only on it being a valid URL.
+
 ## One-time setup
 
 1. **Create the Sheet.** Go to [sheets.google.com](https://sheets.google.com) →
@@ -102,7 +146,8 @@ need to do a one-time deploy following the steps below (5–10 minutes).
    - Delete the default `Code.gs` content in the Apps Script editor.
    - For each file in this folder (`appsscript.json`, `Config.gs`,
      `Utilities.gs`, `Setup.gs`, `Code.gs`, `Transactions.gs`, `Rules.gs`,
-     `Budget.gs`, `Sidebar.html`): create a matching file in the Apps Script editor
+     `Budget.gs`, `Drive.gs`, `TaxExport.gs`, `Sidebar.html`): create a
+     matching file in the Apps Script editor
      (use the "+" next to Files; pick **Script** for `.gs` files and
      **HTML** for `Sidebar.html`; for `appsscript.json` you'll need
      **Project Settings → Show "appsscript.json" manifest file in editor**
@@ -121,9 +166,9 @@ need to do a one-time deploy following the steps below (5–10 minutes).
    again.
 4. **Run setup.** In the Apps Script editor, select the `setupWorkbook`
    function (dropdown next to Run/Debug) and click **Run**. Authorize the
-   requested permissions when prompted (this project only touches the
-   spreadsheet and, from Layer 4, its own Drive receipts folder — it never
-   talks to anything outside your Google account).
+   requested permissions when prompted — it'll ask for the spreadsheet and
+   Drive (to create/use the one receipts folder); everything stays inside
+   your own Google account, there's no external service involved.
 5. **Reload the spreadsheet tab.** You'll see a new **Budget Tracker** menu.
 6. Use **Budget Tracker → Add Transaction...** to open the sidebar and add
    a transaction, or type directly into the Transactions tab — both are
@@ -157,3 +202,42 @@ ever want to see the working.
 
 The manifest sets `Australia/Brisbane` (Queensland — no daylight saving),
 so dates/timestamps in Apps Script match your local calendar.
+
+## "Done when" checklist
+
+From the original spec, mapped to what implements it:
+
+- **Income/expense entries auto-tag Financial Year and Month.** ✅
+  `Transactions!H2`/`I2` `ARRAYFORMULA`s (Layer 1).
+- **Spent-vs-budgeted is correct per category for a chosen month.** ✅
+  `Dashboard!B4` month picker + the category table at `Dashboard!A19:D37`
+  (Layer 2).
+- **Uncategorised, Unassigned, and Reconcile differences all flag
+  visibly.** ✅ Red conditional formatting in `Transactions!D`, the
+  Dashboard's Unassigned/Uncategorised/flagged-months cells, and
+  `Reconciliation!D` (Layer 2).
+- **Attaching a receipt lands it in Drive with a working link in the
+  row.** ✅ Sidebar file picker → `uploadReceiptFile()` → `Receipt Link`
+  (Layer 4).
+- **Export all Work transactions for a chosen FY with receipt links + a
+  total.** ✅ **Budget Tracker → Export Tax Year...** → `Tax Export` tab +
+  PDF (Layer 4).
+
+## Things worth knowing that aren't in the spec
+
+- **Testing approach.** There's no live Google Sheet to test against from
+  this session, so every layer's formulas and server-side functions
+  (`setupWorkbook`, `seedBudgetMonth`, `addTransaction`,
+  `uploadReceiptFile`, `exportTaxYear`) were exercised against a hand-built
+  Node mock of the `SpreadsheetApp`/`DriveApp`/`UrlFetchApp` APIs to catch
+  formula and logic bugs before you ever run it for real. That's not a
+  substitute for actually opening the sheet and clicking through it once
+  it's deployed — please do that, and say if anything looks off.
+- **Category list** (`Config.gs`) is a reasonable default set for a
+  personal AU budget, not something pulled from your actual spending — add
+  the sidebar/menu items to edit it if you want different categories, or
+  just add to the arrays in `Config.gs` and re-run setup.
+- **"One row per category per month"** on `Budget` is manual entry (with
+  **Seed Budget Month...** to reduce the typing) rather than
+  auto-generated, since the spec's data model calls for real rows there,
+  not formulas.

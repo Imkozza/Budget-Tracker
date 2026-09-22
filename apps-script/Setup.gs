@@ -21,6 +21,7 @@ function setupWorkbook() {
 
   orderSheets(ss);
   removeDefaultBlankSheet(ss);
+  getOrCreateReceiptsFolder(); // ensure the one Drive folder exists up front
 
   SpreadsheetApp.flush();
   ss.toast('Budget Tracker tabs are set up.', 'Setup complete', 5);

@@ -7,6 +7,9 @@ function onOpen() {
     .addItem('Add Transaction...', 'showAddTransactionSidebar')
     .addItem('Seed Budget Month...', 'promptSeedBudgetMonth')
     .addSeparator()
+    .addItem('Open Receipts Folder', 'showReceiptsFolderLink')
+    .addItem('Export Tax Year...', 'promptTaxExport')
+    .addSeparator()
     .addItem('Run Setup (first time / repair tabs)', 'setupWorkbook')
     .addToUi();
 }
