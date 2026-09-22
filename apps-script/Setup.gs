@@ -89,6 +89,16 @@ function setupSavingsGoalsSheet(ss) {
   sheet.getRange('C2:C').setNumberFormat(DATE_FORMAT);
   sheet.getRange('D2:D').setNumberFormat(CURRENCY_FORMAT);
 
+  // Current: sum of every Savings Contributions row for this goal. Same
+  // SUMIF-with-array-criteria-under-ARRAYFORMULA pattern used elsewhere
+  // (Transactions FY/Month, Reconciliation Tracked Net) so it covers every
+  // goal row automatically.
+  sheet.getRange('D2').setFormula(
+    '=ARRAYFORMULA(IF(A2:A="","",' +
+    'SUMIF(\'Savings Contributions\'!$B$2:$B,A2:A,\'Savings Contributions\'!$C$2:$C)))'
+  );
+  protectFormulaColumn(sheet, 4, 1, 'Auto-summed: Current');
+
   sheet.setColumnWidths(1, 4, 160);
 }
 
@@ -242,10 +252,91 @@ function setupDashboardSheet(ss) {
   );
   sheet.getRange(topHeaderRow + 2, 2, 5, 1).setNumberFormat(CURRENCY_FORMAT);
 
+  // --- Savings goals progress --------------------------------------------
+  // Dynamic: driven by ARRAYFORMULA off a bounded 'Savings Goals' range, so
+  // it spills to however many goals exist (up to GOAL_CAP) without a fixed
+  // row count, but without ballooning the Dashboard sheet the way an
+  // open-ended A2:A reference would (that spills ~1000 blank rows).
+  var GOAL_CAP = 300;
+  var savingsTitleRow = topHeaderRow + 2 + 5 + 1; // 47
+  var savingsHeaderRow = savingsTitleRow + 1; // 48
+  var firstGoalRow = savingsHeaderRow + 1; // 49
+  var lastGoalRow = firstGoalRow + GOAL_CAP - 1;
+
+  sheet.getRange(savingsTitleRow, 1).setValue('SAVINGS GOALS PROGRESS').setFontWeight('bold');
+  sheet.getRange(savingsHeaderRow, 1, 1, 8).setValues([[
+    'Goal Name', 'Target', 'Current', '% Complete', 'Deadline',
+    'Avg Monthly Contribution', 'Projected Completion', 'On Track?'
+  ]]).setFontWeight('bold');
+
+  var g = firstGoalRow;
+  var goalsName = '\'Savings Goals\'!$A$2:$A$' + (GOAL_CAP + 1);
+  var goalsTarget = '\'Savings Goals\'!$B$2:$B$' + (GOAL_CAP + 1);
+  var goalsDeadline = '\'Savings Goals\'!$C$2:$C$' + (GOAL_CAP + 1);
+  var goalsCurrent = '\'Savings Goals\'!$D$2:$D$' + (GOAL_CAP + 1);
+  var oRange = 'O' + g + ':O' + lastGoalRow;
+  var pRange = 'P' + g + ':P' + lastGoalRow;
+  var qRange = 'Q' + g + ':Q' + lastGoalRow;
+  var fRange = 'F' + g + ':F' + lastGoalRow;
+
+  // Hidden helpers, off in columns O/P/Q, one row per goal:
+  //   O = date of that goal's first contribution (0 if none yet)
+  //   P = whole months elapsed since then (0 if no contributions)
+  //   Q = projected completion date (blank if reached / no contributions)
+  sheet.getRange('O' + g).setFormula(
+    '=ARRAYFORMULA(IF(' + goalsName + '="","",' +
+    'MINIFS(\'Savings Contributions\'!$A$2:$A,\'Savings Contributions\'!$B$2:$B,' + goalsName + ')))'
+  );
+  sheet.getRange('P' + g).setFormula(
+    '=ARRAYFORMULA(IF(' + goalsName + '="","",' +
+    'IF(' + oRange + '=0,0,' +
+    'IF((YEAR(TODAY())-YEAR(' + oRange + '))*12+(MONTH(TODAY())-MONTH(' + oRange + '))+1<1,1,' +
+    '(YEAR(TODAY())-YEAR(' + oRange + '))*12+(MONTH(TODAY())-MONTH(' + oRange + '))+1))))'
+  );
+  sheet.getRange('A' + g).setFormula('=ARRAYFORMULA(IF(' + goalsName + '="","",' + goalsName + '))');
+  sheet.getRange('B' + g).setFormula('=ARRAYFORMULA(IF(' + goalsName + '="","",' + goalsTarget + '))');
+  sheet.getRange('C' + g).setFormula('=ARRAYFORMULA(IF(' + goalsName + '="","",' + goalsCurrent + '))');
+  sheet.getRange('D' + g).setFormula(
+    '=ARRAYFORMULA(IF(' + goalsName + '="","",IFERROR(' + goalsCurrent + '/' + goalsTarget + ',0)))'
+  );
+  sheet.getRange('E' + g).setFormula('=ARRAYFORMULA(IF(' + goalsName + '="","",' + goalsDeadline + '))');
+  sheet.getRange('F' + g).setFormula(
+    '=ARRAYFORMULA(IF(' + goalsName + '="","",IF(' + pRange + '=0,0,' + goalsCurrent + '/' + pRange + ')))'
+  );
+  sheet.getRange('Q' + g).setFormula(
+    '=ARRAYFORMULA(IF(' + goalsName + '="","",' +
+    'IF(' + goalsTarget + '-' + goalsCurrent + '<=0,"",' +
+    'IF(' + fRange + '<=0,"",' +
+    'EDATE(TODAY(),CEILING((' + goalsTarget + '-' + goalsCurrent + ')/' + fRange + ',1))))))'
+  );
+  sheet.getRange('G' + g).setFormula(
+    '=ARRAYFORMULA(IF(' + goalsName + '="","",' +
+    'IF(' + goalsTarget + '-' + goalsCurrent + '<=0,"Goal reached!",' +
+    'IF(' + fRange + '<=0,"No contributions yet",TEXT(' + qRange + ',"mmm yyyy")))))'
+  );
+  sheet.getRange('H' + g).setFormula(
+    '=ARRAYFORMULA(IF(' + goalsName + '="","",' +
+    'IF(' + goalsDeadline + '="","",' +
+    'IF(' + goalsTarget + '-' + goalsCurrent + '<=0,"On track",' +
+    'IF(' + fRange + '<=0,"Behind",' +
+    'IF(' + qRange + '<=' + goalsDeadline + ',"On track","Behind"))))))'
+  );
+
+  sheet.getRange('B' + g + ':C' + lastGoalRow).setNumberFormat(CURRENCY_FORMAT);
+  sheet.getRange('D' + g + ':D' + lastGoalRow).setNumberFormat('0%');
+  sheet.getRange('E' + g + ':E' + lastGoalRow).setNumberFormat(DATE_FORMAT);
+  sheet.getRange('F' + g + ':F' + lastGoalRow).setNumberFormat(CURRENCY_FORMAT);
+
+  flagRules.push(buildFlagRule(sheet.getRange('H' + g + ':H' + lastGoalRow), '=$H' + g + '="Behind"'));
+
+  protectFormulaColumn(sheet, 15, 3, 'Internal helper: savings projection'); // O, P, Q
+
   sheet.setConditionalFormatRules(flagRules);
 
   sheet.setColumnWidths(1, 1, 320);
   sheet.setColumnWidths(2, 3, 130);
+  sheet.setColumnWidths(5, 4, 150);
+  sheet.hideColumns(14, 4); // N (DashMonth) .. Q (savings helpers)
 }
 
 function buildFlagRule(range, formula) {

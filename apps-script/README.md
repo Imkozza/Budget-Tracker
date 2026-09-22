@@ -15,7 +15,7 @@ need to do a one-time deploy following the steps below (5–10 minutes).
 
 - [x] **Layer 1** — tabs + data model + Transactions entry form
 - [x] **Layer 2** — Budget + monthly view + accountability rules
-- [ ] Layer 3 — Savings goals + contributions
+- [x] **Layer 3** — Savings goals + contributions
 - [ ] Layer 4 — receipt-to-Drive upload + tax export
 
 ## What Layer 1 gives you
@@ -72,6 +72,27 @@ need to do a one-time deploy following the steps below (5–10 minutes).
     `Receipt Link` is highlighted red in Transactions and counted on the
     Dashboard.
 
+## What Layer 3 adds
+
+- **Savings Goals!Current** auto-sums every matching row in Savings
+  Contributions for that goal (same `ARRAYFORMULA` + criteria-range pattern
+  used elsewhere), so it's always in sync — just add contribution rows.
+- **Dashboard → Savings Goals Progress**: a live table, one row per goal
+  (driven directly off Savings Goals, so adding a goal there just makes it
+  appear here — no setup re-run needed), showing:
+  - **% Complete** (`Current / Target`).
+  - **Avg Monthly Contribution**: total contributed so far ÷ whole months
+    since that goal's *first* contribution.
+  - **Projected Completion**: today's date advanced by
+    `ceil((Target − Current) / Avg Monthly Contribution)` months — or
+    `"Goal reached!"` / `"No contributions yet"` where that doesn't apply.
+  - **On Track?**: compares Projected Completion against the goal's
+    Deadline (only shown if a Deadline is set) and flags red when
+    `"Behind"`.
+- Savings Contributions already had Goal Name dropdown validation (from
+  Layer 1, sourced from Savings Goals) — just add rows there directly, no
+  extra form needed.
+
 ## One-time setup
 
 1. **Create the Sheet.** Go to [sheets.google.com](https://sheets.google.com) →
@@ -119,7 +140,7 @@ This is computed with a single `ARRAYFORMULA` in `Transactions!H2`/`I2` —
 don't type over column H or I by hand (they're protected with a warning,
 not a hard block, so you can still fix things if you ever need to).
 `Reconciliation!C` (`Tracked Net`) and `!D` (`Difference`) are the same
-pattern and are protected the same way.
+pattern and are protected the same way, as is `Savings Goals!D` (`Current`).
 
 ## Notes on the Dashboard month picker
 
@@ -128,7 +149,9 @@ Dashboard shows — pick any date inside the month you want. Everything else
 (the This Month figures, the accountability flags, the category table, Top
 5) reads from a hidden helper cell (`N4`, named range `DashMonth`) that
 normalises your pick to the 1st of that month, so it doesn't matter which
-day you choose.
+day you choose. Columns `N`–`Q` are internal helpers (`DashMonth` plus the
+savings-projection math) and are hidden by default — unhide them if you
+ever want to see the working.
 
 ## Timezone
 
