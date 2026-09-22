@@ -53,6 +53,12 @@ var ALL_CATEGORIES = EXPENSE_CATEGORIES.concat(INCOME_CATEGORIES);
 
 var UNCATEGORISED_LABEL = 'Uncategorised';
 
+// Categories you can actually set a Budgeted Amount against — excludes
+// "Uncategorised" itself, since the goal is to have nothing land there.
+var BUDGETABLE_CATEGORIES = EXPENSE_CATEGORIES.filter(function (c) {
+  return c !== UNCATEGORISED_LABEL;
+});
+
 // Script Properties keys (used from Layer 4 onward).
 var PROPS_RECEIPTS_FOLDER_ID = 'RECEIPTS_FOLDER_ID';
 

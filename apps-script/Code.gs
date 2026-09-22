@@ -5,6 +5,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Budget Tracker')
     .addItem('Add Transaction...', 'showAddTransactionSidebar')
+    .addItem('Seed Budget Month...', 'promptSeedBudgetMonth')
     .addSeparator()
     .addItem('Run Setup (first time / repair tabs)', 'setupWorkbook')
     .addToUi();

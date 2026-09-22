@@ -1,10 +1,12 @@
 /**
  * One-time (and re-runnable) workbook setup: creates every tab with the
  * exact columns from the spec, header styling, number formats, dropdown
- * validation, and the auto Financial Year / Month formulas.
+ * validation, auto formulas, and the accountability-rule conditional
+ * formatting / flags.
  *
- * Safe to re-run: it only (re)writes headers/formats/validation, it never
- * clears existing data rows.
+ * Safe to re-run: it only (re)writes headers/formats/validation/formulas,
+ * it never clears existing data rows. Conditional format rules are fully
+ * replaced (not appended) each run, so re-running never duplicates them.
  */
 
 function setupWorkbook() {
@@ -35,7 +37,7 @@ function setupTransactionsSheet(ss) {
   sheet.getRange('I2:I').setNumberFormat(MONTH_FORMAT);
 
   applyListValidation(sheet.getRange('C2:C'), DIRECTIONS, true);
-  applyListValidation(sheet.getRange('D2:D'), ALL_CATEGORIES, false); // blank allowed -> flagged Uncategorised (Layer 2)
+  applyListValidation(sheet.getRange('D2:D'), ALL_CATEGORIES, false); // blank allowed -> auto "Uncategorised"
   applyListValidation(sheet.getRange('E2:E'), SCOPES, true);
   applyListValidation(sheet.getRange('J2:J'), RECONCILED_OPTIONS, true);
 
@@ -54,6 +56,17 @@ function setupTransactionsSheet(ss) {
   protectFormulaColumn(sheet, 8, 1, 'Auto-filled: Financial Year');
   protectFormulaColumn(sheet, 9, 1, 'Auto-filled: Month');
 
+  // Accountability rules (visual):
+  //  - Category blank/"Uncategorised" on an Expense row -> flagged red.
+  //    (onEdit in Rules.gs also writes the literal "Uncategorised" text;
+  //    this formatting stays in place regardless of how a row was added.)
+  //  - Work-scope row with no Receipt Link -> flagged red (ATO substantiation).
+  var rules = [
+    buildFlagRule(sheet.getRange('D2:D'), '=AND($C2="Expense",OR($D2="",$D2="Uncategorised"))'),
+    buildFlagRule(sheet.getRange('G2:G'), '=AND($E2="Work",$G2="")')
+  ];
+  sheet.setConditionalFormatRules(rules);
+
   sheet.setColumnWidths(1, 10, 130);
 }
 
@@ -63,7 +76,7 @@ function setupBudgetSheet(ss) {
 
   sheet.getRange('A2:A').setNumberFormat(MONTH_FORMAT);
   sheet.getRange('C2:C').setNumberFormat(CURRENCY_FORMAT);
-  applyListValidation(sheet.getRange('B2:B'), EXPENSE_CATEGORIES, true);
+  applyListValidation(sheet.getRange('B2:B'), BUDGETABLE_CATEGORIES, true);
 
   sheet.setColumnWidths(1, 3, 160);
 }
@@ -102,17 +115,160 @@ function setupReconciliationSheet(ss) {
   sheet.getRange('A2:A').setNumberFormat(MONTH_FORMAT);
   sheet.getRange('B2:D').setNumberFormat(CURRENCY_FORMAT);
 
+  // Tracked Net: Income minus Expense for the row's Month, computed from
+  // Transactions. Wrapping SUMIFS in ARRAYFORMULA with a range (A2:A) as
+  // one of the criteria evaluates it element-by-element, one result per row.
+  sheet.getRange('C2').setFormula(
+    '=ARRAYFORMULA(IF(A2:A="","",' +
+    'SUMIFS(Transactions!$B$2:$B,Transactions!$C$2:$C,"Income",Transactions!$I$2:$I,DATE(YEAR(A2:A),MONTH(A2:A),1))' +
+    '-SUMIFS(Transactions!$B$2:$B,Transactions!$C$2:$C,"Expense",Transactions!$I$2:$I,DATE(YEAR(A2:A),MONTH(A2:A),1))))'
+  );
+  // Difference: blank until you've entered Actual Bank Net for that month,
+  // so an un-reconciled month never shows as a false-positive flag.
+  sheet.getRange('D2').setFormula(
+    '=ARRAYFORMULA(IF(OR(A2:A="",B2:B=""),"",B2:B-C2:C))'
+  );
+
+  protectFormulaColumn(sheet, 3, 1, 'Auto-computed: Tracked Net');
+  protectFormulaColumn(sheet, 4, 1, 'Auto-computed: Difference');
+
+  var rules = [
+    buildFlagRule(sheet.getRange('D2:D'), '=AND($D2<>"",ROUND($D2,2)<>0)')
+  ];
+  sheet.setConditionalFormatRules(rules);
+
   sheet.setColumnWidths(1, 4, 160);
 }
 
 function setupDashboardSheet(ss) {
   var sheet = getOrCreateSheet(ss, SHEET_NAMES.DASHBOARD);
   sheet.clear();
+  sheet.clearConditionalFormatRules();
+
   sheet.getRange('A1').setValue('Budget Tracker Dashboard')
     .setFontWeight('bold').setFontSize(16);
-  sheet.getRange('A2').setValue('Formulas and charts are added in later build layers.')
+  sheet.getRange('A2').setValue('Savings progress and receipt upload arrive in later build layers.')
     .setFontStyle('italic').setFontColor('#666666');
-  sheet.setColumnWidth(1, 220);
+
+  // --- Month selector -----------------------------------------------
+  sheet.getRange('A4').setValue('Select month (pick any date within it):').setFontWeight('bold');
+  sheet.getRange('B4').setValue(new Date()).setNumberFormat(MONTH_FORMAT);
+  applyDateValidation(sheet.getRange('B4'));
+  sheet.getRange('A5').setValue('Financial year:').setFontWeight('bold');
+  sheet.getRange('B5').setFormula(
+    '="FY"&IF(MONTH(B4)>=7,YEAR(B4),YEAR(B4)-1)&"-"&RIGHT(IF(MONTH(B4)>=7,YEAR(B4)+1,YEAR(B4)),2)'
+  );
+
+  // Hidden-ish helper cell: Month normalised to the 1st, used by every
+  // lookup formula below. Kept off in column N so the main view stays tidy.
+  sheet.getRange('N1').setValue('Internal helper - do not edit').setFontColor('#999999').setFontSize(9);
+  sheet.getRange('N4').setFormula('=DATE(YEAR(B4),MONTH(B4),1)').setNumberFormat(MONTH_FORMAT);
+  setNamedRange(ss, 'DashMonth', sheet.getRange('N4'));
+
+  // --- This month ------------------------------------------------------
+  sheet.getRange('A7').setValue('THIS MONTH').setFontWeight('bold');
+  sheet.getRange('A8').setValue('Income');
+  sheet.getRange('B8').setFormula('=SUMIFS(Transactions!$B$2:$B,Transactions!$C$2:$C,"Income",Transactions!$I$2:$I,DashMonth)');
+  sheet.getRange('A9').setValue('Expenses');
+  sheet.getRange('B9').setFormula('=SUMIFS(Transactions!$B$2:$B,Transactions!$C$2:$C,"Expense",Transactions!$I$2:$I,DashMonth)');
+  sheet.getRange('A10').setValue('Net').setFontWeight('bold');
+  sheet.getRange('B10').setFormula('=B8-B9').setFontWeight('bold');
+  sheet.getRange('B8:B10').setNumberFormat(CURRENCY_FORMAT);
+
+  // --- Data quality & accountability -----------------------------------
+  sheet.getRange('A12').setValue('DATA QUALITY & ACCOUNTABILITY').setFontWeight('bold');
+  sheet.getRange('A13').setValue('Unassigned (Income − Budgeted), this month');
+  sheet.getRange('B13').setFormula('=B8-B37');
+  sheet.getRange('A14').setValue('Uncategorised expenses (all time)');
+  sheet.getRange('B14').setFormula(
+    '=COUNTIFS(Transactions!$C$2:$C,"Expense",Transactions!$D$2:$D,"")' +
+    '+COUNTIFS(Transactions!$C$2:$C,"Expense",Transactions!$D$2:$D,"Uncategorised")'
+  );
+  sheet.getRange('A15').setValue('Work expenses missing a receipt (all time)');
+  sheet.getRange('B15').setFormula('=COUNTIFS(Transactions!$E$2:$E,"Work",Transactions!$G$2:$G,"")');
+  sheet.getRange('A16').setValue('Reconciliation months with a flagged difference');
+  sheet.getRange('B16').setFormula('=COUNTIFS(Reconciliation!$D$2:$D,"<>0",Reconciliation!$D$2:$D,"<>")');
+  sheet.getRange('B13').setNumberFormat(CURRENCY_FORMAT);
+
+  var flagRules = [
+    buildFlagRule(sheet.getRange('B13'), '=ROUND($B13,2)<>0'),
+    buildFlagRule(sheet.getRange('B14'), '=$B14>0'),
+    buildFlagRule(sheet.getRange('B15'), '=$B15>0'),
+    buildFlagRule(sheet.getRange('B16'), '=$B16>0')
+  ];
+
+  // --- Spent vs budgeted by category, selected month --------------------
+  sheet.getRange('A18').setValue('SPENT VS BUDGETED — SELECTED MONTH').setFontWeight('bold');
+  var tableHeaderRow = 19;
+  sheet.getRange(tableHeaderRow, 1, 1, 4).setValues([['Category', 'Budgeted', 'Spent', 'Remaining']])
+    .setFontWeight('bold');
+
+  var firstCatRow = tableHeaderRow + 1; // 20
+  var lastCatRow = firstCatRow + EXPENSE_CATEGORIES.length - 1; // 36
+
+  sheet.getRange(firstCatRow, 1, EXPENSE_CATEGORIES.length, 1)
+    .setValues(EXPENSE_CATEGORIES.map(function (cat) { return [cat]; }));
+
+  for (var i = 0; i < EXPENSE_CATEGORIES.length; i++) {
+    var r = firstCatRow + i;
+    sheet.getRange(r, 2).setFormula(
+      '=SUMPRODUCT((Budget!$B$2:$B$1000=$A' + r + ')*(DATE(YEAR(Budget!$A$2:$A$1000),MONTH(Budget!$A$2:$A$1000),1)=DashMonth)*Budget!$C$2:$C$1000)'
+    );
+    sheet.getRange(r, 3).setFormula(
+      '=SUMIFS(Transactions!$B$2:$B,Transactions!$C$2:$C,"Expense",Transactions!$D$2:$D,$A' + r + ',Transactions!$I$2:$I,DashMonth)'
+    );
+    sheet.getRange(r, 4).setFormula('=B' + r + '-C' + r);
+  }
+  sheet.getRange(firstCatRow, 2, EXPENSE_CATEGORIES.length, 3).setNumberFormat(CURRENCY_FORMAT);
+
+  var totalsRow = lastCatRow + 1; // 37
+  sheet.getRange(totalsRow, 1).setValue('Total').setFontWeight('bold');
+  sheet.getRange(totalsRow, 2).setFormula('=SUM(B' + firstCatRow + ':B' + lastCatRow + ')').setFontWeight('bold');
+  sheet.getRange(totalsRow, 3).setFormula('=SUM(C' + firstCatRow + ':C' + lastCatRow + ')').setFontWeight('bold');
+  sheet.getRange(totalsRow, 4).setFormula('=B' + totalsRow + '-C' + totalsRow).setFontWeight('bold');
+  sheet.getRange(totalsRow, 2, 1, 3).setNumberFormat(CURRENCY_FORMAT);
+
+  flagRules.push(buildFlagRule(
+    sheet.getRange(firstCatRow, 4, EXPENSE_CATEGORIES.length, 1),
+    '=$D' + firstCatRow + '<0'
+  ));
+
+  // --- Top 5 categories by spend -----------------------------------------
+  var topHeaderRow = totalsRow + 2; // 39
+  sheet.getRange(topHeaderRow, 1).setValue('TOP 5 CATEGORIES BY SPEND — SELECTED MONTH').setFontWeight('bold');
+  sheet.getRange(topHeaderRow + 1, 1, 1, 2).setValues([['Category', 'Spent']]).setFontWeight('bold');
+  sheet.getRange(topHeaderRow + 2, 1).setFormula(
+    '=IFERROR(ARRAY_CONSTRAIN(SORT({A' + firstCatRow + ':A' + lastCatRow + ',C' + firstCatRow + ':C' + lastCatRow + '},2,FALSE),5,2),"")'
+  );
+  sheet.getRange(topHeaderRow + 2, 2, 5, 1).setNumberFormat(CURRENCY_FORMAT);
+
+  sheet.setConditionalFormatRules(flagRules);
+
+  sheet.setColumnWidths(1, 1, 320);
+  sheet.setColumnWidths(2, 3, 130);
+}
+
+function buildFlagRule(range, formula) {
+  return SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied(formula)
+    .setBackground(FLAG_BG)
+    .setRanges([range])
+    .build();
+}
+
+function applyDateValidation(range) {
+  var rule = SpreadsheetApp.newDataValidation().requireDate().setAllowInvalid(false).build();
+  range.setDataValidation(rule);
+}
+
+function setNamedRange(ss, name, range) {
+  var existing = ss.getNamedRanges();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getName() === name) {
+      existing[i].remove();
+    }
+  }
+  ss.setNamedRange(name, range);
 }
 
 function protectFormulaColumn(sheet, column, numColumns, description) {

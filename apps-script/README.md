@@ -14,15 +14,14 @@ need to do a one-time deploy following the steps below (5–10 minutes).
 ## Build status
 
 - [x] **Layer 1** — tabs + data model + Transactions entry form
-- [ ] Layer 2 — Budget + monthly view + accountability rules
+- [x] **Layer 2** — Budget + monthly view + accountability rules
 - [ ] Layer 3 — Savings goals + contributions
 - [ ] Layer 4 — receipt-to-Drive upload + tax export
 
 ## What Layer 1 gives you
 
 - All six tabs created with the exact columns from the spec: Transactions,
-  Budget, Savings Goals, Savings Contributions, Reconciliation, Dashboard
-  (Dashboard is a placeholder until Layer 2).
+  Budget, Savings Goals, Savings Contributions, Reconciliation, Dashboard.
 - `Transactions!Financial Year` and `Transactions!Month` auto-fill from
   `Date` via an array formula — this covers every row, whether added
   through the sidebar or typed straight into the sheet.
@@ -33,6 +32,46 @@ need to do a one-time deploy following the steps below (5–10 minutes).
   transaction at a time (Date, Amount, Direction, Category, Scope, Note,
   Receipt Link as a manual paste-in for now — Drive upload lands in Layer 4).
 
+## What Layer 2 adds
+
+- **Budget Tracker → Seed Budget Month...** menu item: enter a month
+  (`YYYY-MM`) and it inserts one `Budget` row per budgetable category for
+  that month (skipping any that already exist), `Budgeted Amount` left at
+  0 for you to fill in. You can still add/edit rows by hand — the data
+  model stays "one row per category per month".
+- **Reconciliation** tab auto-computes `Tracked Net` (Income − Expense for
+  that row's month, from Transactions) and `Difference` (`Actual Bank Net`
+  − `Tracked Net`). `Difference` stays blank until you fill in `Actual Bank
+  Net` for that month, so unreconciled months never show as a false
+  "flagged" difference.
+- **Dashboard** is now live:
+  - A month picker (`B4`, pick any date in the target month) drives every
+    figure below it, plus a derived Financial Year label.
+  - **This month**: Income, Expenses, Net.
+  - **Data quality & accountability**: Unassigned (Income − Σ budgeted
+    categories for the month), Uncategorised expense count (all time),
+    Work expenses missing a receipt (all time), and a count of
+    Reconciliation months with a flagged Difference — every one of these
+    turns red when it's non-zero.
+  - **Spent vs Budgeted by category** for the selected month (one row per
+    expense category, including Uncategorised, with a Remaining column
+    that flags red when you've overspent).
+  - **Top 5 categories by spend** for the selected month.
+- **Accountability rules, enforced everywhere:**
+  - *Every expense needs a Category.* Leave it blank (sidebar or typed
+    directly into the sheet) and it's written back as literal
+    `"Uncategorised"` and highlighted red in the Transactions grid; the
+    Dashboard counts these.
+  - *Zero-based check.* Dashboard's Unassigned cell flags red whenever
+    Income ≠ Σ(budgeted categories) for the selected month.
+  - *Reconciliation.* Enter `Actual Bank Net` per month in the
+    Reconciliation tab; `Tracked Net`/`Difference` are automatic and the
+    Difference cell (plus the Dashboard's flagged-months count) turns red
+    on any non-zero difference.
+  - *ATO substantiation.* Any Work-scope transaction with an empty
+    `Receipt Link` is highlighted red in Transactions and counted on the
+    Dashboard.
+
 ## One-time setup
 
 1. **Create the Sheet.** Go to [sheets.google.com](https://sheets.google.com) →
@@ -41,8 +80,8 @@ need to do a one-time deploy following the steps below (5–10 minutes).
 3. **Bring in the code.** Easiest path — copy/paste:
    - Delete the default `Code.gs` content in the Apps Script editor.
    - For each file in this folder (`appsscript.json`, `Config.gs`,
-     `Utilities.gs`, `Setup.gs`, `Code.gs`, `Transactions.gs`,
-     `Sidebar.html`): create a matching file in the Apps Script editor
+     `Utilities.gs`, `Setup.gs`, `Code.gs`, `Transactions.gs`, `Rules.gs`,
+     `Budget.gs`, `Sidebar.html`): create a matching file in the Apps Script editor
      (use the "+" next to Files; pick **Script** for `.gs` files and
      **HTML** for `Sidebar.html`; for `appsscript.json` you'll need
      **Project Settings → Show "appsscript.json" manifest file in editor**
@@ -79,6 +118,17 @@ one dated 3 Feb 2026 is also FY2025‑26; one dated 1 Jul 2026 is FY2026‑27.
 This is computed with a single `ARRAYFORMULA` in `Transactions!H2`/`I2` —
 don't type over column H or I by hand (they're protected with a warning,
 not a hard block, so you can still fix things if you ever need to).
+`Reconciliation!C` (`Tracked Net`) and `!D` (`Difference`) are the same
+pattern and are protected the same way.
+
+## Notes on the Dashboard month picker
+
+`Dashboard!B4` is the only cell you need to touch to change what the
+Dashboard shows — pick any date inside the month you want. Everything else
+(the This Month figures, the accountability flags, the category table, Top
+5) reads from a hidden helper cell (`N4`, named range `DashMonth`) that
+normalises your pick to the 1st of that month, so it doesn't matter which
+day you choose.
 
 ## Timezone
 

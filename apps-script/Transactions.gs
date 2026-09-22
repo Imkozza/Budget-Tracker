@@ -28,7 +28,12 @@ function addTransaction(form) {
   var sheet = getSheet(SHEET_NAMES.TRANSACTIONS);
   var row = getNextDataRow(sheet, 1); // column A = Date is the reliable "key" column
   var dateValue = parseFormDate(form.date);
-  var category = (form.category || '').trim();
+  var categoryInput = (form.category || '').trim();
+  var wasBlank = !categoryInput && form.direction === 'Expense';
+  // onEdit (Rules.gs) only fires for user-driven sheet edits, not writes
+  // made from server code like this one, so apply the same "blank expense
+  // -> Uncategorised" rule here.
+  var category = wasBlank ? UNCATEGORISED_LABEL : categoryInput;
 
   sheet.getRange(row, 1, 1, 7).setValues([[
     dateValue,
@@ -43,10 +48,9 @@ function addTransaction(form) {
 
   SpreadsheetApp.flush();
 
-  var warning = '';
-  if (!category) {
-    warning = ' Category was left blank — it will show as "Uncategorised" and be flagged.';
-  }
+  var warning = wasBlank
+    ? ' Category was left blank — set to "Uncategorised" and flagged.'
+    : '';
 
   return {
     row: row,
